@@ -38,6 +38,14 @@ Status              Additional tent(s) count
 
 - Turtle WoW (World of Warcraft 1.12), Interface `11200`.
 
+## Changelog
+
+- **1.3** - Code cleanup and bug fixes: guard max-level (no XP) math, prevent tooltip errors before the first update, remove global leaks, and avoid redundant label updates.
+- **1.2** - Added `/bubbles` and `/b` commands.
+- **1.1** - Maintenance release.
+- **1.0** - First stable release.
+- **0.1** - Initial version.
+
 ## Credits
 
 - Tent-resting rate based on [PizzaWorldBuffs](https://github.com/Pizzahawaiii/PizzaWorldBuffs).

@@ -176,4 +176,4 @@ SlashCmdList["BUBBLES"] = function(msg)
   end
 end
 
-DEFAULT_CHAT_FRAME:AddMessage("|cfff58cbaBubbles |cffffffff1.2 loaded")
+DEFAULT_CHAT_FRAME:AddMessage("|cfff58cbaBubbles |cffffffff1.3 loaded")

@@ -8,7 +8,8 @@ Addon that displays available rested XP bubbles, how many tents are actively pro
 - Active tent count when two or more tents are stacked.
 - Estimated time until full (150%) rested XP.
 - Hover tooltip with rested, remaining and percentage detail.
-- Draggable frame; type `/bubbles` or `/b` to list all available commands.
+- Draggable frame; its position, scale and font size are remembered between sessions.
+- Type `/bubbles` or `/b` to list all available commands.
 
 ## Install
 
@@ -18,9 +19,11 @@ Addon that displays available rested XP bubbles, how many tents are actively pro
 ## Commands
 
 ```
-/bubbles        List all commands
-/b              Alias for /bubbles
-/b reset        Reset the frame to the center of the screen
+/bubbles          List all commands
+/b                Alias for /bubbles
+/b reset          Reset the frame to the center of the screen
+/b scale <0.5-2>  Set the frame scale
+/b font <8-24>    Set the font size
 ```
 
 ## Tooltip
@@ -39,6 +42,8 @@ Status              Additional tent(s) count
 - Turtle WoW (World of Warcraft 1.12), Interface `11200`.
 
 ## Changelog
+
+- **Unreleased** - Remember frame position, scale and font size (`/b scale`, `/b font`); smoother tent detection; clamp negative values; max-level early-out; localization scaffold.
 
 - **1.3** - Code cleanup and bug fixes: guard max-level (no XP) math, prevent tooltip errors before the first update, remove global leaks, and avoid redundant label updates.
 - **1.2** - Added `/bubbles` and `/b` commands.

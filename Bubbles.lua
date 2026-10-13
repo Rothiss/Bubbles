@@ -2,32 +2,74 @@ local TENT_RATE = 0.13
 local RESTED_CAP = 1.5
 local MAX_BUBBLES = 30
 local THRESHOLD = 1
+local CONFIRM_SAMPLES = 2
+local TENT_DISPLAY_CAP = 10
+local SCALE_MIN, SCALE_MAX = 0.5, 2
+local FONT_MIN, FONT_MAX = 8, 24
 
-local x, m, r, b
+local L = {
+  loaded = "|cfff58cbaBubbles |cffffffff%s loaded",
+  label = "|cfff58cba%s|cffffffff Bubbles",
+  labelTents = "|cfff58cba%s|cffffffff Bubbles / |cfff58cba%s",
+  reset = "|cfff58cbaBubbles|cffffffff frame reset to center.",
+  commands = "|cfff58cbaBubbles commands:",
+  cmdReset = "|cffffffff/b reset - Reset frame to center",
+  cmdScale = "|cffffffff/b scale <0.5-2> - Set frame scale",
+  cmdFont = "|cffffffff/b font <8-24> - Set font size",
+  scaleSet = "|cfff58cbaBubbles|cffffffff scale set to %s.",
+  scaleUsage = "|cfff58cbaBubbles|cffffffff usage: /b scale <0.5-2>",
+  fontSet = "|cfff58cbaBubbles|cffffffff font size set to %d.",
+  fontUsage = "|cfff58cbaBubbles|cffffffff usage: /b font <8-24>",
+  tooltipTitle = "|cfff58cbaBubbles (|cffffffff%d|cfff58cba)",
+  tooltipCap = "|cffaaaaaaMaximum amount of rested bubbles is %d. To fully rest with one tent takes around 13 minutes. Multiple tents can stack and speed up resting.",
+  rested = "|cffffffffRested",
+  restedPlus = "|cffffffffRested+",
+  still = "|cffffffffStill",
+  percent = "|cffffffffPercent",
+  timeToFull = "|cffffffffTime to full rest",
+  status = "|cffffffffStatus",
+  gaining = "|cffaaaaaaGaining from %d tent(s)",
+  min = "|cffaaaaaamin",
+  xp = "|cffaaaaaa%s XP",
+  percentVal = "|cffaaaaaa%d%%",
+}
+
+BubblesDB = BubblesDB or {}
+
 local tents = 0
-local lastTents = 0
+local pendingTents = 0
+local pendingCount = 0
 local lastXP = GetXPExhaustion() or 0
-local lastUpdate = GetTime()
-local elapsed = 0
-local remaining = 0
+local nextTick = GetTime() + THRESHOLD
 local time = "0:00"
 local lastText
 
 local f = CreateFrame("Button", "Bubbles", UIParent)
 
-f:ClearAllPoints()
 f:SetWidth(100)
 f:SetHeight(25)
-f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 f:SetFrameStrata("HIGH")
 
+f:ClearAllPoints()
+if BubblesDB.point then
+  f:SetPoint(BubblesDB.point, UIParent, BubblesDB.relativePoint, BubblesDB.x, BubblesDB.y)
+else
+  f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+end
+f:SetScale(BubblesDB.scale or 1)
+
 f.text = f:CreateFontString(nil, "LOW", "GameFontNormal")
-f.text:SetFont("Fonts\\ARIALN.TTF", 13, "OUTLINE")
 f.text:ClearAllPoints()
 f.text:SetAllPoints(f)
-f.text:SetPoint("LEFT", 0, 0)
 f.text:SetJustifyH("LEFT")
-f.text:SetFontObject(GameFontWhite)
+
+local function ApplyFont()
+  f.text:SetFontObject(GameFontWhite)
+  local family, baseSize, flags = f.text:GetFont()
+  f.text:SetFont(family, BubblesDB.fontSize or baseSize or 13, flags)
+end
+
+ApplyFont()
 
 local function BubbleCount(rested, max)
   if -1 == (rested or -1) or not max or max == 0 then
@@ -47,16 +89,15 @@ local function FormatTime(secs)
 end
 
 local function Refresh()
-  x = UnitXP("player")
-  m = UnitXPMax("player")
-  r = GetXPExhaustion() or 0
-  b = BubbleCount(r, m)
+  local rested = GetXPExhaustion() or 0
+  local max = UnitXPMax("player")
+  local b = BubbleCount(rested, max)
 
   local text
-  if tents > 0 and tents < 10 then
-    text = "|cfff58cba" .. b .. "|cffffffff Bubbles / |cfff58cba" .. tents
+  if tents > 0 and tents < TENT_DISPLAY_CAP then
+    text = L.labelTents:format(b, tents)
   else
-    text = "|cfff58cba" .. b .. "|cffffffff Bubbles"
+    text = L.label:format(b)
   end
 
   if text ~= lastText then
@@ -68,37 +109,53 @@ end
 
 f:SetScript("OnUpdate", function()
   local now = GetTime()
-  local delta = now - lastUpdate
+  if now < nextTick then
+    return
+  end
+  nextTick = now + THRESHOLD
 
-  lastUpdate = now
-  elapsed = elapsed + delta
+  local r = GetXPExhaustion() or 0
+  local gained = r - lastXP
+  lastXP = r
+  if gained < 0 then
+    gained = 0
+  end
 
-  if elapsed >= THRESHOLD then
-    elapsed = 0
+  local m = UnitXPMax("player")
 
-    r = GetXPExhaustion() or 0
-    local gained = r - lastXP
-    lastXP = r
-
-    m = UnitXPMax("player")
-    local rate = 0
-    if m and m > 0 then
-      rate = (gained / m) * 100
-    end
+  if m and m > 0 then
+    local rate = (gained / m) * 100
     -- ty to https://github.com/Pizzahawaiii/PizzaWorldBuffs/blob/dbfef375451131c62d26db4c15cee5bae5b41133/src/tents.lua#L69
-    tents = math.floor(rate / (TENT_RATE * THRESHOLD))
+    local rawTents = math.floor(rate / (TENT_RATE * THRESHOLD))
+    if rawTents < 0 then
+      rawTents = 0
+    end
+
+    if rawTents == pendingTents then
+      pendingCount = pendingCount + 1
+    else
+      pendingTents = rawTents
+      pendingCount = 1
+    end
+
+    if pendingCount >= CONFIRM_SAMPLES and tents ~= pendingTents then
+      tents = pendingTents
+      Refresh()
+    end
 
     local p = TENT_RATE * math.max(tents, 1) / THRESHOLD
-    if m and m > 0 then
-      remaining = (1 - r / (m * RESTED_CAP)) * (100 / p)
-    else
+    local remaining = (1 - r / (m * RESTED_CAP)) * (100 / p)
+    if remaining < 0 then
       remaining = 0
     end
     time = FormatTime(remaining)
-
-    if tents ~= lastTents then
+  else
+    pendingTents = 0
+    pendingCount = 0
+    time = "0:00"
+    if tents ~= 0 then
+      tents = 0
       Refresh()
-      lastTents = tents
     end
   end
 end)
@@ -119,9 +176,14 @@ end)
 f:SetScript("OnMouseUp", function(self)
   self:StopMovingOrSizing()
   self:SetUserPlaced(true)
+  local point, _, relativePoint, x, y = self:GetPoint(1)
+  BubblesDB.point = point
+  BubblesDB.relativePoint = relativePoint
+  BubblesDB.x = x
+  BubblesDB.y = y
 end)
 
-f:SetScript("OnEnter", function(self)
+local function ShowTooltip(self)
   local rested = GetXPExhaustion() or 0
   local max = UnitXPMax("player")
   local cur = UnitXP("player") or 0
@@ -133,26 +195,30 @@ f:SetScript("OnEnter", function(self)
   GameTooltip:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, (CONTAINER_OFFSET_Y or 0) + 13)
   GameTooltip:SetClampedToScreen(true)
 
-  GameTooltip:AddLine("|cfff58cbaBubbles (|cffffffff" .. bubbles .. "|cfff58cba)")
-  GameTooltip:AddLine("|cffaaaaaaMaximum amount of rested bubbles is " .. MAX_BUBBLES .. ". To fully rest with one tent takes around 13 minutes. Multiple tents can stack and speed up resting.", 0, 0, 0, true)
+  GameTooltip:AddLine(L.tooltipTitle:format(bubbles))
+  GameTooltip:AddLine(L.tooltipCap:format(MAX_BUBBLES), 0, 0, 0, true)
   GameTooltip:AddLine(" ")
   if max and max > 0 then
     -- ty to https://forum.turtle-wow.org/viewtopic.php?p=65081#p65081
-    GameTooltip:AddDoubleLine("|cffffffffRested", "|cffaaaaaa" .. rested .. " XP")
+    GameTooltip:AddDoubleLine(L.rested, L.xp:format(rested))
     if rested + cur > max then
-      GameTooltip:AddDoubleLine("|cffffffffRested+", "|cffaaaaaa" .. rested + cur - max .. " XP")
+      GameTooltip:AddDoubleLine(L.restedPlus, L.xp:format(rested + cur - max))
     end
-    GameTooltip:AddDoubleLine("|cffffffffStill", "|cffaaaaaa" .. max - cur .. " XP")
-    GameTooltip:AddDoubleLine("|cffffffffPercent", "|cffaaaaaa" .. math.floor(cur / max * 100) .. "%")
+    GameTooltip:AddDoubleLine(L.still, L.xp:format(max - cur))
+    GameTooltip:AddDoubleLine(L.percent, L.percentVal:format(math.floor(cur / max * 100)))
   end
 
-  GameTooltip:AddDoubleLine("|cffffffffTime to full rest", "|cfff58cba" .. time .. " |cffaaaaaamin")
+  GameTooltip:AddDoubleLine(L.timeToFull, "|cfff58cba" .. time .. " " .. L.min)
 
   if tents > 0 then
-    GameTooltip:AddDoubleLine("|cffffffffStatus", "|cffaaaaaaGaining from " .. tents .. " tent(s)")
+    GameTooltip:AddDoubleLine(L.status, L.gaining:format(tents))
   end
 
   GameTooltip:Show()
+end
+
+f:SetScript("OnEnter", function(self)
+  ShowTooltip(self)
 end)
 
 f:SetScript("OnLeave", function()
@@ -164,16 +230,42 @@ SLASH_BUBBLES2 = "/b"
 
 SlashCmdList["BUBBLES"] = function(msg)
   msg = string.lower(msg or "")
+  local cmd, arg = string.match(msg, "^(%S*)%s*(.-)%s*$")
+  cmd = cmd or ""
 
-  if msg == "reset" then
+  if cmd == "reset" then
     f:ClearAllPoints()
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     f:SetUserPlaced(false)
-    DEFAULT_CHAT_FRAME:AddMessage("|cfff58cbaBubbles|cffffffff frame reset to center.")
+    BubblesDB.point = nil
+    BubblesDB.relativePoint = nil
+    BubblesDB.x = nil
+    BubblesDB.y = nil
+    DEFAULT_CHAT_FRAME:AddMessage(L.reset)
+  elseif cmd == "scale" then
+    local val = tonumber(arg)
+    if val and val >= SCALE_MIN and val <= SCALE_MAX then
+      BubblesDB.scale = val
+      f:SetScale(val)
+      DEFAULT_CHAT_FRAME:AddMessage(L.scaleSet:format(val))
+    else
+      DEFAULT_CHAT_FRAME:AddMessage(L.scaleUsage)
+    end
+  elseif cmd == "font" then
+    local val = tonumber(arg)
+    if val and val >= FONT_MIN and val <= FONT_MAX then
+      BubblesDB.fontSize = val
+      ApplyFont()
+      DEFAULT_CHAT_FRAME:AddMessage(L.fontSet:format(val))
+    else
+      DEFAULT_CHAT_FRAME:AddMessage(L.fontUsage)
+    end
   else
-    DEFAULT_CHAT_FRAME:AddMessage("|cfff58cbaBubbles commands:")
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffffff/b reset - Reset frame to center")
+    DEFAULT_CHAT_FRAME:AddMessage(L.commands)
+    DEFAULT_CHAT_FRAME:AddMessage(L.cmdReset)
+    DEFAULT_CHAT_FRAME:AddMessage(L.cmdScale)
+    DEFAULT_CHAT_FRAME:AddMessage(L.cmdFont)
   end
 end
 
-DEFAULT_CHAT_FRAME:AddMessage("|cfff58cbaBubbles |cffffffff1.3 loaded")
+DEFAULT_CHAT_FRAME:AddMessage(L.loaded:format("1.3"))
